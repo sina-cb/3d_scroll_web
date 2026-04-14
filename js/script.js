@@ -1,401 +1,152 @@
 /* ============================================
-   ARCHITECT — 3D Scroll Engine
-   
-   Handles all scroll-driven 3D effects:
-   1. Scroll progress bar
-   2. IntersectionObserver reveal animations
-   3. Word-by-word headline reveals
-   4. Parallax floating geometry
-   5. Hero 3D tilt on scroll
-   6. Horizontal scroll gallery (desktop)
-   7. Gallery card 3D mouse tilt
-   8. Navigation scroll state
-   9. Custom cursor (desktop)
-   10. Mobile hamburger menu
-   11. Page loader
+   ARCHITECT — 3D Cylinder Scroll Engine
    ============================================ */
 
 (function () {
     'use strict';
 
-    /* ── Utility ─────────────────────────── */
-
     const isMobile = () => window.innerWidth <= 768;
-    const isReducedMotion = () => 
-        window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    /** Clamp a value between min and max */
-    const clamp = (val, min, max) => Math.min(Math.max(val, min), max);
-
-    /** Linear interpolation */
-    const lerp = (start, end, factor) => start + (end - start) * factor;
-
-
-    /* ── 1. Scroll Progress Bar ──────────── */
-
-    const scrollProgress = document.getElementById('scroll-progress');
-
-    function updateScrollProgress() {
-        const scrollTop = window.scrollY;
-        const docHeight = document.documentElement.scrollHeight - window.innerHeight;
-        const progress = docHeight > 0 ? (scrollTop / docHeight) * 100 : 0;
-        if (scrollProgress) {
-            scrollProgress.style.width = progress + '%';
-        }
-    }
-
-
-    /* ── 2. Scroll Reveal (IntersectionObserver) ── */
-
-    function initScrollReveal() {
-        if (isReducedMotion()) return;
-
-        const revealElements = document.querySelectorAll('[data-reveal]');
-        
-        const observer = new IntersectionObserver(
-            (entries) => {
-                entries.forEach((entry) => {
-                    if (entry.isIntersecting) {
-                        entry.target.classList.add('revealed');
-                        // Don't unobserve — allow re-triggering if you want,
-                        // but for performance, unobserve after reveal:
-                        observer.unobserve(entry.target);
-                    }
-                });
-            },
-            {
-                threshold: 0.15,
-                rootMargin: '0px 0px -60px 0px',
-            }
-        );
-
-        revealElements.forEach((el) => observer.observe(el));
-    }
-
-
-    /* ── 3. Word-by-Word Headline Reveals ── */
-
-    function initWordReveal() {
-        if (isReducedMotion()) return;
-
-        const wordRevealElements = document.querySelectorAll('[data-word-reveal]');
-        
-        wordRevealElements.forEach((el) => {
-            const text = el.innerHTML;
-            // Split by spaces but preserve HTML tags like <em>, <br>
-            const words = text.split(/(\s+)/);
-            
-            el.innerHTML = '';
-            el.classList.add('word-reveal');
-
-            let wordIndex = 0;
-            words.forEach((word) => {
-                if (word.trim() === '') {
-                    // Preserve whitespace
-                    el.appendChild(document.createTextNode(word));
-                } else {
-                    const wrapper = document.createElement('span');
-                    wrapper.style.display = 'inline-block';
-                    wrapper.style.overflow = 'hidden';
-                    wrapper.style.verticalAlign = 'bottom';
-
-                    const inner = document.createElement('span');
-                    inner.classList.add('word-reveal__word');
-                    inner.style.transitionDelay = (wordIndex * 0.06) + 's';
-                    inner.innerHTML = word;
-                    
-                    wrapper.appendChild(inner);
-                    el.appendChild(wrapper);
-                    wordIndex++;
-                }
-            });
-        });
-
-        // Observe word-reveal containers
-        const observer = new IntersectionObserver(
-            (entries) => {
-                entries.forEach((entry) => {
-                    if (entry.isIntersecting) {
-                        entry.target.classList.add('revealed');
-                        observer.unobserve(entry.target);
-                    }
-                });
-            },
-            { threshold: 0.2, rootMargin: '0px 0px -40px 0px' }
-        );
-
-        document.querySelectorAll('.word-reveal').forEach((el) => observer.observe(el));
-    }
-
-
-    /* ── 4. Parallax Floating Geometry ──── */
-
-    const floatingElements = [];
+    /* ── DOM Elements ────────────────────── */
+    const proxy = document.querySelector('.scroll-proxy');
+    const cylinder = document.getElementById('cylinder');
+    const panels = Array.from(document.querySelectorAll('.panel'));
     
-    function initFloatingParallax() {
-        if (isReducedMotion() || isMobile()) return;
-
-        document.querySelectorAll('[data-parallax-speed]').forEach((el) => {
-            floatingElements.push({
-                el,
-                speed: parseFloat(el.dataset.parallaxSpeed) || 0.3,
-                baseTop: el.getBoundingClientRect().top + window.scrollY,
-            });
-        });
-    }
-
-    function updateFloatingParallax() {
-        if (isReducedMotion() || isMobile()) return;
-
-        const scrollY = window.scrollY;
-        floatingElements.forEach((item) => {
-            const offset = (scrollY - item.baseTop) * item.speed;
-            item.el.style.transform = `translateY(${offset}px)`;
-        });
-    }
-
-
-    /* ── 5. Hero 3D Tilt on Scroll ──────── */
-
-    const heroImageWrapper = document.querySelector('.hero__image-wrapper');
-    
-    function updateHeroTilt() {
-        if (!heroImageWrapper || isReducedMotion() || isMobile()) return;
-
-        const hero = document.getElementById('hero');
-        if (!hero) return;
-
-        const rect = hero.getBoundingClientRect();
-        const viewportH = window.innerHeight;
-        
-        // Progress: 0 at top of viewport, 1 when hero is fully scrolled past
-        const progress = clamp(-rect.top / (rect.height), 0, 1);
-        
-        const rotateY = 3 - progress * 6;
-        const rotateX = progress * 12;
-        const translateZ = -progress * 80;
-        const scale = 1 - progress * 0.05;
-
-        heroImageWrapper.style.transform = 
-            `rotateY(${rotateY}deg) rotateX(${rotateX}deg) translateZ(${translateZ}px) scale(${scale})`;
-    }
-
-
-    /* ── 6. Horizontal Scroll Gallery ───── */
-
-    const gallerySection = document.getElementById('gallery');
-    const galleryTrack = document.querySelector('.gallery__track');
-    
-    function updateHorizontalScroll() {
-        if (!gallerySection || !galleryTrack || isMobile()) return;
-
-        const rect = gallerySection.getBoundingClientRect();
-        const sectionHeight = gallerySection.offsetHeight;
-        const viewportHeight = window.innerHeight;
-        
-        // Calculate how far we've scrolled through the gallery section
-        const scrollProgress = clamp(
-            -rect.top / (sectionHeight - viewportHeight),
-            0,
-            1
-        );
-
-        // Calculate the max scroll distance for the track
-        const trackWidth = galleryTrack.scrollWidth;
-        const containerWidth = gallerySection.offsetWidth - 96; // subtract padding
-        const maxScroll = Math.max(0, trackWidth - containerWidth);
-
-        galleryTrack.style.transform = `translateX(${-scrollProgress * maxScroll}px)`;
-    }
-
-
-    /* ── 7. Gallery Card 3D Mouse Tilt ──── */
-
-    function initCardTilt() {
-        if (isMobile() || isReducedMotion()) return;
-
-        const cards = document.querySelectorAll('.gallery__card');
-        
-        cards.forEach((card) => {
-            card.addEventListener('mousemove', (e) => {
-                const rect = card.getBoundingClientRect();
-                const x = (e.clientX - rect.left) / rect.width - 0.5;
-                const y = (e.clientY - rect.top) / rect.height - 0.5;
-
-                card.style.transform = 
-                    `perspective(800px) rotateY(${x * 12}deg) rotateX(${-y * 8}deg) translateZ(16px)`;
-            });
-
-            card.addEventListener('mouseleave', () => {
-                card.style.transform = 'perspective(800px) rotateY(0deg) rotateX(0deg) translateZ(0px)';
-            });
-        });
-    }
-
-
-    /* ── 8. Navigation Scroll State ──────── */
-
-    const nav = document.getElementById('main-nav');
-    let lastScrollY = 0;
-
-    function updateNavState() {
-        if (!nav) return;
-
-        const scrollY = window.scrollY;
-        
-        if (scrollY > 80) {
-            nav.classList.add('scrolled');
-        } else {
-            nav.classList.remove('scrolled');
-        }
-
-        lastScrollY = scrollY;
-    }
-
-
-    /* ── 9. Custom Cursor (Desktop) ──────── */
-
+    // Custom Cursor
     const cursorOuter = document.getElementById('cursor');
     const cursorDot = document.getElementById('cursor-dot');
-    let mouseX = 0, mouseY = 0;
-    let cursorOuterX = 0, cursorOuterY = 0;
 
-    function initCustomCursor() {
+    /* ── Configuration ───────────────────── */
+    const N = panels.length; // Ensure this is 6 based on HTML
+    const THETA = 360 / N;   // 60 degrees between panels
+
+    /* ── State ───────────────────────────── */
+    let currentRotation = 0;
+    let targetRotation = 0;
+    let radius = 0;
+
+    /* ── Initialization & Math ───────────── */
+    function resize() {
+        const H = window.innerHeight;
+        // Calculate radius to make each panel exactly full screen height at the tangent
+        // Since panel rotates around center, the apothem is the radius
+        // R = (H / 2) / Math.tan(Math.PI / N)
+        radius = (H / 2) / Math.tan(Math.PI / N);
+        
+        // Add minimal padding so panels don't clip into each other tightly
+        radius += isMobile() ? 40 : 100;
+
+        // Propagate to CSS variables
+        document.documentElement.style.setProperty('--cylinder-radius', `${radius}px`);
+        
+        // Adjust proxy height to make the scrolling smooth.
+        // We want (N-1) sections of scroll depth. Each translates to 1.5 viewport heights to give reading time.
+        proxy.style.height = `${(N) * 1.5 * H}px`;
+        
+        // Force update immediately
+        updateScrollProgress();
+    }
+
+    /* ── Scroll Logic ────────────────────── */
+    function updateScrollProgress() {
+        if (!proxy) return;
+        const scrollTop = window.scrollY;
+        const maxScroll = proxy.scrollHeight - window.innerHeight;
+        const progress = maxScroll > 0 ? scrollTop / maxScroll : 0;
+        
+        // We want the total rotation to span from Panel 0 to Panel N-1
+        // meaning total degrees = (N - 1) * THETA
+        targetRotation = progress * ((N - 1) * THETA);
+    }
+
+    /* ── Animation Loop ──────────────────── */
+    function render() {
+        // Lerp for buttery smooth scrolling
+        currentRotation += (targetRotation - currentRotation) * 0.08;
+        
+        if (cylinder) {
+            // translateZ(-R) pushes the entire cylinder back so the front panel sits at Z=0 (viewport plane)
+            // rotateX spins the cylinder. A positive rotation makes it spin downwards (so panels below come UP).
+            cylinder.style.transform = `translateZ(-${radius}px) rotateX(${currentRotation}deg)`;
+        }
+
+        // Panel Depth Management (Opacity & Blur)
+        panels.forEach((panel, i) => {
+             const panelRot = i * THETA;
+             // Find how far the panel is from the front (currently viewed angle)
+             const diff = Math.abs(panelRot - currentRotation);
+             
+             // distance ratio: 0 is front, 1 is 1-panel away (60deg), >1 is behind
+             const distRatio = Math.min(diff / THETA, 1.5);
+             
+             // Dim panels that are rolling away/behind
+             const opacity = Math.max(1 - distRatio * 0.9, 0.05);
+             
+             // Add blur to fading panels to enhance depth of field
+             const blur = distRatio * 8; 
+
+             panel.style.opacity = opacity;
+             panel.style.filter = `blur(${blur}px)`;
+             
+             // Optimize out completely hidden panels from paint interactions
+             panel.style.pointerEvents = distRatio > 0.5 ? 'none' : 'all';
+        });
+
+        // Request next frame
+        requestAnimationFrame(render);
+    }
+
+    /* ── Custom Cursor ───────────────────── */
+    let mouseX = 0, mouseY = 0;
+    let cursorX = 0, cursorY = 0;
+
+    function initCursor() {
         if (isMobile() || !cursorOuter || !cursorDot) return;
 
         document.addEventListener('mousemove', (e) => {
             mouseX = e.clientX;
             mouseY = e.clientY;
-            
-            // Dot follows instantly
             cursorDot.style.left = mouseX + 'px';
             cursorDot.style.top = mouseY + 'px';
         });
 
-        // Add hover class on interactive elements
-        const hoverTargets = document.querySelectorAll('a, button, .gallery__card');
+        const hoverTargets = document.querySelectorAll('button, a, .bento-item, .image-wrapper');
         hoverTargets.forEach((el) => {
-            el.addEventListener('mouseenter', () => cursorOuter.classList.add('hovering'));
-            el.addEventListener('mouseleave', () => cursorOuter.classList.remove('hovering'));
+            el.addEventListener('mouseenter', () => cursorOuter.style.borderColor = 'var(--color-tertiary)');
+            el.addEventListener('mouseleave', () => cursorOuter.style.borderColor = 'rgba(132, 173, 255, 0.5)');
+            el.addEventListener('mouseenter', () => cursorOuter.style.transform = 'translate(-50%, -50%) scale(1.5)');
+            el.addEventListener('mouseleave', () => cursorOuter.style.transform = 'translate(-50%, -50%) scale(1)');
         });
     }
 
-    function updateCustomCursor() {
-        if (isMobile() || !cursorOuter) return;
-
-        // Smooth eased follow for outer ring
-        cursorOuterX = lerp(cursorOuterX, mouseX, 0.12);
-        cursorOuterY = lerp(cursorOuterY, mouseY, 0.12);
-        
-        cursorOuter.style.left = cursorOuterX + 'px';
-        cursorOuter.style.top = cursorOuterY + 'px';
-    }
-
-
-    /* ── 10. Mobile Hamburger Menu ──────── */
-
-    function initMobileMenu() {
-        const hamburger = document.getElementById('hamburger');
-        const mobileMenu = document.getElementById('mobile-menu');
-
-        if (!hamburger || !mobileMenu) return;
-
-        hamburger.addEventListener('click', () => {
-            hamburger.classList.toggle('active');
-            mobileMenu.classList.toggle('open');
-            document.body.style.overflow = 
-                mobileMenu.classList.contains('open') ? 'hidden' : '';
-        });
-
-        // Close on link click
-        mobileMenu.querySelectorAll('a').forEach((link) => {
-            link.addEventListener('click', () => {
-                hamburger.classList.remove('active');
-                mobileMenu.classList.remove('open');
-                document.body.style.overflow = '';
-            });
-        });
-    }
-
-
-    /* ── 11. Page Loader ─────────────────── */
-
-    function initLoader() {
-        const loader = document.getElementById('page-loader');
-        if (!loader) return;
-
-        window.addEventListener('load', () => {
-            setTimeout(() => {
-                loader.classList.add('loaded');
-            }, 600);
-        });
-    }
-
-
-    /* ── Main Animation Loop ─────────────── */
-
-    let ticking = false;
-
-    function onScroll() {
-        if (!ticking) {
-            requestAnimationFrame(() => {
-                updateScrollProgress();
-                updateNavState();
-                updateHeroTilt();
-                updateHorizontalScroll();
-                updateFloatingParallax();
-                ticking = false;
-            });
-            ticking = true;
+    function renderCursor() {
+        if (!isMobile() && cursorOuter) {
+            cursorX += (mouseX - cursorX) * 0.15;
+            cursorY += (mouseY - cursorY) * 0.15;
+            cursorOuter.style.left = cursorX + 'px';
+            cursorOuter.style.top = cursorY + 'px';
         }
+        requestAnimationFrame(renderCursor);
     }
 
-    function animateCursor() {
-        updateCustomCursor();
-        requestAnimationFrame(animateCursor);
-    }
-
-
-    /* ── Initialization ──────────────────── */
-
+    /* ── Boot ────────────────────────────── */
     function init() {
-        // Setup
-        initLoader();
-        initScrollReveal();
-        initWordReveal();
-        initFloatingParallax();
-        initCardTilt();
-        initCustomCursor();
-        initMobileMenu();
-
-        // Scroll listener
-        window.addEventListener('scroll', onScroll, { passive: true });
+        window.addEventListener('resize', resize);
+        window.addEventListener('scroll', updateScrollProgress, { passive: true });
         
-        // Initial call to set state
+        resize();
         updateScrollProgress();
-        updateNavState();
-        updateHeroTilt();
-        updateHorizontalScroll();
+        
+        // Ensure starting properties apply
+        currentRotation = targetRotation; 
 
-        // Start cursor animation loop (desktop only)
-        if (!isMobile()) {
-            animateCursor();
-        }
-
-        // Handle resize — recalculate on orientation change
-        let resizeTimer;
-        window.addEventListener('resize', () => {
-            clearTimeout(resizeTimer);
-            resizeTimer = setTimeout(() => {
-                // Recalculate floating element positions
-                floatingElements.forEach((item) => {
-                    item.baseTop = item.el.getBoundingClientRect().top + window.scrollY;
-                });
-            }, 250);
-        });
+        initCursor();
+        
+        // Start loops
+        requestAnimationFrame(render);
+        requestAnimationFrame(renderCursor);
     }
 
-    // Boot
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {
